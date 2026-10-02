@@ -12,6 +12,9 @@ secrets.json
 *.pem
 *.key
 
+# Database
+*.db
+
 # Python
 __pycache__/
 *.py[cod]

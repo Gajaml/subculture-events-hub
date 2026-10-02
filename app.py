@@ -39,19 +39,36 @@ if hasattr(app, 'json'):
 # ==============================================================================
 # 이벤트 원본 데이터 임포트
 # ==============================================================================
-# data/events.py 파일의 EVENTS 리스트를 임포트합니다.
+# SQLite DB를 우선 사용하고, DB가 비어있으면 data/events.py의 Mock 데이터로 폴백합니다.
+try:
+    from database import init_db, get_all_events as db_get_all_events, get_event_count, migrate_mock_data
+    # 서버 시작 시 DB 초기화 및 Mock 데이터 마이그레이션
+    init_db()
+    migrate_mock_data()
+    _USE_DB = True
+except ImportError:
+    _USE_DB = False
+
 try:
     from data.events import EVENTS
 except (ImportError, ModuleNotFoundError):
-    # data/events.py가 아직 생성되지 않은 초기 실행 환경을 위한 안전한 폴백(Fallback)
     EVENTS = []
 
 
 def get_all_raw_events():
     """
-    data/events.py 모듈로부터 최신 이벤트 원본 데이터를 동적으로 로드합니다.
-    서버 재시작 없이도 파일 내용 변경 시 최신 데이터를 반영할 수 있도록 지원합니다.
+    이벤트 원본 데이터를 로드합니다.
+    SQLite DB에 데이터가 있으면 DB에서, 없으면 data/events.py에서 읽어옵니다.
     """
+    if _USE_DB:
+        try:
+            db_events = db_get_all_events()
+            if db_events:
+                return db_events
+        except Exception:
+            pass
+
+    # DB 실패 시 기존 Mock 데이터 폴백
     try:
         import data.events
         import importlib
