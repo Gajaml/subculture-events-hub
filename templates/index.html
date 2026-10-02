@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎮 서브컬처 이벤트 허브</title>
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700&display=swap" rel="stylesheet">
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Noto Sans KR"', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            게임: { bg: '#3b82f6', text: '#1d4ed8', border: '#bfdbfe' },
+                            애니메이션: { bg: '#ec4899', text: '#be185d', border: '#fbcfe8' },
+                            버튜버: { bg: '#22c55e', text: '#15803d', border: '#bbf7d0' },
+                            웹툰: { bg: '#f97316', text: '#c2410c', border: '#fed7aa' },
+                            동인행사: { bg: '#a855f7', text: '#7e22ce', border: '#e9d5ff' },
+                            '피규어/굿즈': { bg: '#eab308', text: '#a16207', border: '#fef08a' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    
+    <!-- Icons (Lucide) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <style>
+        body { font-family: 'Noto Sans KR', sans-serif; background-color: #f9fafb; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        #map { height: calc(100vh - 280px); min-height: 500px; z-index: 10; border-radius: 0.5rem; }
+        #modal-map { height: 250px; z-index: 10; border-radius: 0.5rem; }
+        
+        .event-marker {
+            width: 24px; height: 24px; border-radius: 50%;
+            border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+        
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+        
+        .loading-spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            width: 36px; height: 36px; border-radius: 50%;
+            border-left-color: #6366f1; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="text-gray-800 antialiased min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-indigo-700 to-purple-700 text-white shadow-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <h1 class="text-2xl sm:text-3xl font-bold flex items-center gap-2">
+                <i data-lucide="gamepad-2" class="w-8 h-8"></i> 서브컬처 이벤트 허브
+            </h1>
+            <p class="mt-2 text-indigo-100 text-sm sm:text-base">팝업스토어 · 콜라보카페 · 전시회 · 동인행사</p>
+        </div>
+        <!-- Tabs -->
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-2">
+            <nav class="flex space-x-1" aria-label="Tabs">
+                <button onclick="switchTab('calendar')" id="tab-btn-calendar" class="tab-btn active bg-white/20 text-white px-4 py-3 font-medium text-sm rounded-t-lg flex items-center gap-2 hover:bg-white/30 transition">
+                    <i data-lucide="calendar" class="w-4 h-4"></i> 캘린더
+                </button>
+                <button onclick="switchTab('map')" id="tab-btn-map" class="tab-btn text-indigo-100 hover:text-white hover:bg-white/10 px-4 py-3 font-medium text-sm rounded-t-lg flex items-center gap-2 transition">
+                    <i data-lucide="map" class="w-4 h-4"></i> 지도
+                </button>
+                <button onclick="switchTab('list')" id="tab-btn-list" class="tab-btn text-indigo-100 hover:text-white hover:bg-white/10 px-4 py-3 font-medium text-sm rounded-t-lg flex items-center gap-2 transition">
+                    <i data-lucide="list" class="w-4 h-4"></i> 리스트
+                </button>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Filters -->
+    <div class="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-sm">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+            <div class="flex flex-col gap-4">
+                <!-- Categories -->
+                <div class="flex flex-wrap gap-2 items-center" id="category-filters">
+                    <span class="text-sm font-bold text-gray-500 mr-2"><i data-lucide="tag" class="w-4 h-4 inline"></i> 카테고리:</span>
+                    <button class="filter-category active px-3 py-1.5 rounded-full text-sm font-medium bg-gray-800 text-white" data-val="all">전체</button>
+                    <!-- Buttons will be injected here -->
+                </div>
+                <!-- Status -->
+                <div class="flex flex-wrap gap-2 items-center" id="status-filters">
+                    <span class="text-sm font-bold text-gray-500 mr-2"><i data-lucide="activity" class="w-4 h-4 inline"></i> 상태:</span>
+                    <button class="filter-status active px-3 py-1.5 rounded-full text-sm font-medium bg-gray-800 text-white" data-val="all">전체</button>
+                    <button class="filter-status px-3 py-1.5 rounded-full text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200" data-val="ongoing">진행 중</button>
+                    <button class="filter-status px-3 py-1.5 rounded-full text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200" data-val="upcoming">예정</button>
+                    <button class="filter-status px-3 py-1.5 rounded-full text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200" data-val="reservation_open">예약 오픈 중</button>
+                    <button class="filter-status px-3 py-1.5 rounded-full text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200" data-val="ended">종료</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 relative">
+        
+        <!-- Loading -->
+        <div id="loading" class="absolute inset-0 z-50 flex items-center justify-center bg-gray-50/80 rounded-xl">
+            <div class="flex flex-col items-center gap-3">
+                <div class="loading-spinner"></div>
+                <p class="text-gray-500 font-medium">이벤트를 불러오는 중...</p>
+            </div>
+        </div>
+
+        <!-- Empty State -->
+        <div id="empty-state" class="hidden py-20 text-center">
+            <i data-lucide="inbox" class="w-16 h-16 mx-auto text-gray-300 mb-4"></i>
+            <h3 class="text-lg font-medium text-gray-900">검색 결과가 없습니다</h3>
+            <p class="mt-1 text-gray-500">다른 필터 조건을 선택해보세요.</p>
+        </div>
+
+        <!-- 1. Calendar View -->
+        <div id="view-calendar" class="tab-content active">
+            <div class="bg-white rounded-xl shadow border border-gray-200 overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-gray-50">
+                    <button id="cal-prev" class="p-2 hover:bg-gray-200 rounded-full transition"><i data-lucide="chevron-left" class="w-5 h-5"></i></button>
+                    <h2 id="cal-month-title" class="text-xl font-bold text-gray-800">2026년 10월</h2>
+                    <button id="cal-next" class="p-2 hover:bg-gray-200 rounded-full transition"><i data-lucide="chevron-right" class="w-5 h-5"></i></button>
+                </div>
+                <div class="grid grid-cols-7 gap-px bg-gray-200" id="cal-days-header">
+                    <div class="bg-white py-2 text-center text-sm font-semibold text-red-500">일</div>
+                    <div class="bg-white py-2 text-center text-sm font-semibold text-gray-700">월</div>
+                    <div class="bg-white py-2 text-center text-sm font-semibold text-gray-700">화</div>
+                    <div class="bg-white py-2 text-center text-sm font-semibold text-gray-700">수</div>
+                    <div class="bg-white py-2 text-center text-sm font-semibold text-gray-700">목</div>
+                    <div class="bg-white py-2 text-center text-sm font-semibold text-gray-700">금</div>
+                    <div class="bg-white py-2 text-center text-sm font-semibold text-blue-500">토</div>
+                </div>
+                <div class="grid grid-cols-7 gap-px bg-gray-200" id="cal-grid">
+                    <!-- Days will be generated here -->
+                </div>
+            </div>
+            
+            <div class="mt-6 hidden" id="cal-selected-events">
+                <h3 class="text-lg font-bold mb-4 flex items-center gap-2"><i data-lucide="calendar-check" class="w-5 h-5 text-indigo-600"></i> <span id="cal-selected-date-title"></span> 이벤트</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="cal-selected-events-list">
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Map View -->
+        <div id="view-map" class="tab-content">
+            <div id="map" class="shadow border border-gray-200"></div>
+        </div>
+
+        <!-- 3. List View -->
+        <div id="view-list" class="tab-content">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6" id="list-grid">
+                <!-- Cards will be generated here -->
+            </div>
+        </div>
+    </main>
+
+    <!-- Event Detail Modal -->
+    <div id="event-modal" class="fixed inset-0 z-[100] hidden">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onclick="closeModal()"></div>
+        <div class="absolute inset-y-0 right-0 max-w-2xl w-full bg-white shadow-2xl flex flex-col transform transition-transform translate-x-full duration-300 sm:rounded-l-2xl overflow-hidden" id="event-modal-content">
+            
+            <div class="flex justify-between items-center p-4 border-b border-gray-100 bg-white sticky top-0 z-10">
+                <h3 class="text-lg font-bold text-gray-900 truncate pr-4">이벤트 상세</h3>
+                <button onclick="closeModal()" class="p-2 hover:bg-gray-100 rounded-full text-gray-500 transition"><i data-lucide="x" class="w-6 h-6"></i></button>
+            </div>
+            
+            <div class="overflow-y-auto flex-1 bg-gray-50 p-4 sm:p-6" id="modal-body">
+                <!-- Content injected here -->
+            </div>
+            
+        </div>
+    </div>
+
+    <!-- Data & App Logic -->
+    <script>
+        // Initialize Icons
+        lucide.createIcons();
+
+        // Constants
+        const CATEGORIES = ['게임', '애니메이션', '버튜버', '웹툰', '동인행사', '피규어/굿즈'];
+        const CAT_COLORS = {
+            '게임': 'bg-blue-500', '애니메이션': 'bg-pink-500', '버튜버': 'bg-green-500',
+            '웹툰': 'bg-orange-500', '동인행사': 'bg-purple-500', '피규어/굿즈': 'bg-yellow-500'
+        };
+
+        // State
+        let allEvents = [];
+        let filteredEvents = [];
+        let currentTab = 'calendar';
+        let filterCat = 'all';
+        let filterStatus = 'all';
+        
+        // Map instances
+        let mainMap = null;
+        let mainMapMarkers = [];
+        let modalMap = null;
+        let modalMarker = null;
+
+        // Calendar state
+        let currentDate = new Date(2026, 9, 1); // Oct 2026 (month is 0-indexed)
+        let selectedDate = null;
+
+        // Init App
+        document.addEventListener('DOMContentLoaded', async () => {
+            initFilters();
+            await fetchEvents();
+            renderAll();
+        });
+
+        function initFilters() {
+            const catContainer = document.getElementById('category-filters');
+            CATEGORIES.forEach(cat => {
+                const btn = document.createElement('button');
+                btn.className = `filter-category px-3 py-1.5 rounded-full text-sm font-medium bg-gray-100 text-gray-600 hover:bg-gray-200 transition`;
+                btn.dataset.val = cat;
+                btn.textContent = cat;
+                catContainer.appendChild(btn);
+            });
+
+            document.querySelectorAll('.filter-category').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    document.querySelectorAll('.filter-category').forEach(b => {
+                        b.classList.remove('bg-gray-800', 'text-white');
+                        b.classList.add('bg-gray-100', 'text-gray-600');
+                    });
+                    const target = e.target.closest('button');
+                    target.classList.remove('bg-gray-100', 'text-gray-600');
+                    target.classList.add('bg-gray-800', 'text-white');
+                    filterCat = target.dataset.val;
+                    applyFilters();
+                });
+            });
+
+            document.querySelectorAll('.filter-status').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    document.querySelectorAll('.filter-status').forEach(b => {
+                        b.classList.remove('bg-gray-800', 'text-white');
+                        b.classList.add('bg-gray-100', 'text-gray-600');
+                    });
+                    const target = e.target.closest('button');
+                    target.classList.remove('bg-gray-100', 'text-gray-600');
+                    target.classList.add('bg-gray-800', 'text-white');
+                    filterStatus = target.dataset.val;
+                    applyFilters();
+                });
+            });
+
+            // Calendar controls
+            document.getElementById('cal-prev').addEventListener('click', () => {
+                currentDate.setMonth(currentDate.getMonth() - 1);
+                renderCalendar();
+            });
+            document.getElementById('cal-next').addEventListener('click', () => {
+                currentDate.setMonth(currentDate.getMonth() + 1);
+                renderCalendar();
+            });
+        }
+
+        async function fetchEvents() {
+            try {
+                // In a real app, this would be: const res = await fetch('/api/events'); const data = await res.json();
+                // Simulating API fetch and some mock data since we don't have a backend providing /api/events in this prompt
+                const response = await fetch('/api/events').catch(() => null);
+                let data = [];
+                
+                if (response && response.ok) {
+                    data = await response.json();
+                } else {
+                    // Mock data fallback
+                    data = generateMockData();
+                }
+                
+                allEvents = data;
+                filteredEvents = [...allEvents];
+                document.getElementById('loading').style.display = 'none';
+            } catch (error) {
+                console.error("Failed to fetch events:", error);
+                document.getElementById('loading').style.display = 'none';
+                allEvents = generateMockData(); // Fallback
+                filteredEvents = [...allEvents];
+            }
+        }
+
+        function applyFilters() {
+            filteredEvents = allEvents.filter(ev => {
+                const matchCat = filterCat === 'all' || ev.category === filterCat;
+                const matchStatus = filterStatus === 'all' || ev.status === filterStatus;
+                return matchCat && matchStatus;
+            });
+            
+            const emptyState = document.getElementById('empty-state');
+            if(filteredEvents.length === 0) {
+                emptyState.classList.remove('hidden');
+            } else {
+                emptyState.classList.add('hidden');
+            }
+
+            renderAll();
+        }
+
+        function renderAll() {
+            if (currentTab === 'calendar') renderCalendar();
+            if (currentTab === 'list') renderList();
+            if (currentTab === 'map') renderMap();
+            
+            // Clear selected calendar day if filtering
+            if(currentTab === 'calendar' && selectedDate) {
+                renderSelectedDateEvents();
+            }
+        }
+
+        function switchTab(tabId) {
+            currentTab = tabId;
+            
+            // Update buttons
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.classList.remove('bg-white/20', 'text-white', 'active');
+                btn.classList.add('text-indigo-100');
+            });
+            const activeBtn = document.getElementById(`tab-btn-${tabId}`);
+            activeBtn.classList.add('bg-white/20', 'text-white', 'active');
+            activeBtn.classList.remove('text-indigo-100');
+
+            // Update content
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(`view-${tabId}`).classList.add('active');
+
+            renderAll();
+        }
+
+        // --- CALENDAR VIEW ---
+        function renderCalendar() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            document.getElementById('cal-month-title').textContent = `${year}년 ${month + 1}월`;
+
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            
+            const startDate = new Date(firstDay);
+            startDate.setDate(startDate.getDate() - startDate.getDay());
+            
+            const endDate = new Date(lastDay);
+            if (endDate.getDay() !== 6) {
+                endDate.setDate(endDate.getDate() + (6 - endDate.getDay()));
+            }
+
+            const grid = document.getElementById('cal-grid');
+            grid.innerHTML = '';
+
+            let curr = new Date(startDate);
+            while (curr <= endDate) {
+                const dateStr = `${curr.getFullYear()}-${String(curr.getMonth()+1).padStart(2, '0')}-${String(curr.getDate()).padStart(2, '0')}`;
+                const isCurrentMonth = curr.getMonth() === month;
+                const isToday = curr.toDateString() === new Date().toDateString();
+                const isWeekend = curr.getDay() === 0 || curr.getDay() === 6;
+                const isSelected = selectedDate === dateStr;
+
+                // Find events for this day
+                const dayEvents = filteredEvents.filter(ev => {
+                    const start = new Date(ev.startDate);
+                    const end = new Date(ev.endDate);
+                    const check = new Date(dateStr);
+                    // normalize times
+                    start.setHours(0,0,0,0); end.setHours(23,59,59,999); check.setHours(12,0,0,0);
+                    return check >= start && check <= end;
+                });
+
+                const cell = document.createElement('div');
+                cell.className = `min-h-[100px] bg-white p-2 cursor-pointer transition relative group ${!isCurrentMonth ? 'opacity-50 bg-gray-50' : 'hover:bg-indigo-50'} ${isSelected ? 'ring-2 ring-indigo-500 ring-inset bg-indigo-50' : ''}`;
+                cell.onclick = () => selectDate(dateStr, dayEvents);
+                
+                let textColor = 'text-gray-700';
+                if (curr.getDay() === 0) textColor = 'text-red-500';
+                if (curr.getDay() === 6) textColor = 'text-blue-500';
+
+                let html = `<div class="text-sm font-medium ${isToday ? 'bg-indigo-600 text-white w-6 h-6 rounded-full flex items-center justify-center' : textColor}">${curr.getDate()}</div>`;
+                
+                html += `<div class="mt-1 flex flex-col gap-1">`;
+                
+                // Show up to 3 events as bars
+                dayEvents.slice(0, 3).forEach(ev => {
+                    const colorClass = CAT_COLORS[ev.category] || 'bg-gray-500';
+                    html += `<div class="text-[10px] leading-tight truncate px-1 rounded text-white ${colorClass}">${ev.title}</div>`;
+                });
+                
+                if (dayEvents.length > 3) {
+                    html += `<div class="text-[10px] text-gray-500 font-medium px-1">+${dayEvents.length - 3}개 더보기</div>`;
+                }
+                
+                html += `</div>`;
+                cell.innerHTML = html;
+                grid.appendChild(cell);
+
+                curr.setDate(curr.getDate() + 1);
+            }
+        }
+
+        function selectDate(dateStr, events) {
+            selectedDate = dateStr;
+            renderCalendar(); // Re-render to show selection styling
+            renderSelectedDateEvents();
+        }
+
+        function renderSelectedDateEvents() {
+            const container = document.getElementById('cal-selected-events');
+            const list = document.getElementById('cal-selected-events-list');
+            const title = document.getElementById('cal-selected-date-title');
+            
+            if (!selectedDate) {
+                container.classList.add('hidden');
+                return;
+            }
+
+            const dayEvents = filteredEvents.filter(ev => {
+                const start = new Date(ev.startDate);
+                const end = new Date(ev.endDate);
+                const check = new Date(selectedDate);
+                start.setHours(0,0,0,0); end.setHours(23,59,59,999); check.setHours(12,0,0,0);
+                return check >= start && check <= end;
+            });
+
+            title.textContent = selectedDate;
+            
+            if (dayEvents.length === 0) {
+                list.innerHTML = `<div class="col-span-full py-8 text-center text-gray-500 bg-white rounded-lg border border-gray-200">선택한 날짜에 이벤트가 없습니다.</div>`;
+            } else {
+                list.innerHTML = '';
+                dayEvents.forEach(ev => list.appendChild(createEventCard(ev)));
+            }
+            container.classList.remove('hidden');
+            
+            // Scroll to events smoothly
+            container.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+
+        // --- LIST VIEW ---
+        function renderList() {
+            const grid = document.getElementById('list-grid');
+            grid.innerHTML = '';
+            filteredEvents.forEach(ev => {
+                grid.appendChild(createEventCard(ev));
+            });
+        }
+
+        function createEventCard(ev) {
+            const card = document.createElement('div');
+            card.className = "bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-md transition cursor-pointer flex flex-col h-full";
+            card.onclick = () => openModal(ev);
+
+            const statusColors = {
+                'ongoing': 'bg-green-100 text-green-800',
+                'upcoming': 'bg-blue-100 text-blue-800',
+                'reservation_open': 'bg-orange-100 text-orange-800',
+                'ended': 'bg-gray-100 text-gray-800'
+            };
+            const statusLabels = {
+                'ongoing': '진행 중',
+                'upcoming': '예정',
+                'reservation_open': '예약 오픈 중',
+                'ended': '종료'
+            };
+            const statColor = statusColors[ev.status] || 'bg-gray-100 text-gray-800';
+            const statLabel = statusLabels[ev.status] || ev.status;
+            const catColor = CAT_COLORS[ev.category] || 'bg-gray-500';
+
+            card.innerHTML = `
+                <div class="h-48 bg-gray-200 relative overflow-hidden">
+                    <img src="${ev.thumbnailUrl || ev.thumbnail || 'https://placehold.co/400x300/6366f1/white?text=No+Image'}" alt="${ev.title}" class="w-full h-full object-cover transition duration-300 hover:scale-105" onerror="this.src='https://placehold.co/400x300/6366f1/white?text=No+Image'">
+                    <div class="absolute top-3 left-3 ${catColor} text-white text-xs font-bold px-2 py-1 rounded shadow">
+                        ${ev.category}
+                    </div>
+                    <div class="absolute top-3 right-3 ${statColor} text-xs font-bold px-2 py-1 rounded shadow backdrop-blur-sm bg-white/90">
+                        ${statLabel}
+                    </div>
+                </div>
+                <div class="p-4 flex flex-col flex-1">
+                    <h3 class="font-bold text-lg text-gray-900 line-clamp-2 mb-2 group-hover:text-indigo-600 transition">${ev.title}</h3>
+                    <div class="mt-auto space-y-2 text-sm text-gray-600">
+                        <div class="flex items-start gap-2">
+                            <i data-lucide="calendar" class="w-4 h-4 mt-0.5 text-gray-400 shrink-0"></i>
+                            <span>${ev.startDate} ~ ${ev.endDate}</span>
+                        </div>
+                        <div class="flex items-start gap-2">
+                            <i data-lucide="map-pin" class="w-4 h-4 mt-0.5 text-gray-400 shrink-0"></i>
+                            <span class="line-clamp-1">${ev.venueName}</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            lucide.createIcons({ root: card });
+            return card;
+        }
+
+        // --- MAP VIEW ---
+        function renderMap() {
+            if (!mainMap) {
+                // Initialize Main Map
+                mainMap = L.map('map').setView([37.5665, 126.9780], 11);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors'
+                }).addTo(mainMap);
+            }
+            
+            // Clear markers
+            mainMapMarkers.forEach(m => mainMap.removeLayer(m));
+            mainMapMarkers = [];
+
+            // Add markers
+            const bounds = L.latLngBounds();
+            let hasValidCoords = false;
+
+            filteredEvents.forEach(ev => {
+                if (ev.lat && ev.lng) {
+                    const catColorClass = CAT_COLORS[ev.category] || 'bg-gray-500';
+                    const iconHtml = `<div class="event-marker ${catColorClass}"></div>`;
+                    
+                    const customIcon = L.divIcon({
+                        html: iconHtml,
+                        className: '',
+                        iconSize: [24, 24],
+                        iconAnchor: [12, 12],
+                        popupAnchor: [0, -12]
+                    });
+
+                    const marker = L.marker([ev.lat, ev.lng], { icon: customIcon }).addTo(mainMap);
+                    
+                    const popupContent = `
+                        <div class="p-1 min-w-[200px]">
+                            <div class="text-xs font-bold text-gray-500 mb-1">${ev.category}</div>
+                            <div class="font-bold text-sm mb-1">${ev.title}</div>
+                            <div class="text-xs text-gray-600 mb-2">${ev.startDate} ~ ${ev.endDate}</div>
+                            <button onclick='openModalById(${ev.id})' class="w-full bg-indigo-600 text-white text-xs py-1.5 rounded hover:bg-indigo-700 transition">상세 보기</button>
+                        </div>
+                    `;
+                    marker.bindPopup(popupContent);
+                    mainMapMarkers.push(marker);
+                    bounds.extend([ev.lat, ev.lng]);
+                    hasValidCoords = true;
+                }
+            });
+
+            if (hasValidCoords) {
+                // Invalidate size to fix display issues in tabs, then fit bounds
+                setTimeout(() => {
+                    mainMap.invalidateSize();
+                    mainMap.fitBounds(bounds, { padding: [50, 50], maxZoom: 14 });
+                }, 100);
+            }
+        }
+
+        // --- MODAL ---
+        function openModalById(id) {
+            const ev = allEvents.find(e => e.id === id);
+            if(ev) openModal(ev);
+        }
+
+        function openModal(ev) {
+            const modal = document.getElementById('event-modal');
+            const content = document.getElementById('event-modal-content');
+            const body = document.getElementById('modal-body');
+            
+            modal.classList.remove('hidden');
+            // Small delay to allow display:block to apply before animating transform
+            setTimeout(() => {
+                content.classList.remove('translate-x-full');
+            }, 10);
+            
+            document.body.style.overflow = 'hidden';
+
+            const catColor = CAT_COLORS[ev.category] || 'bg-gray-500';
+
+            body.innerHTML = `
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-6">
+                    <img src="${ev.thumbnailUrl || ev.thumbnail || 'https://placehold.co/800x400/6366f1/white?text=No+Image'}" alt="${ev.title}" class="w-full h-64 sm:h-80 object-cover" onerror="this.src='https://placehold.co/800x400/6366f1/white?text=No+Image'">
+                    <div class="p-6">
+                        <div class="flex items-center gap-2 mb-3">
+                            <span class="${catColor} text-white text-xs font-bold px-2.5 py-1 rounded-full">${ev.category}</span>
+                            <span class="text-sm text-gray-500 font-medium">${ev.subCategory || ''}</span>
+                        </div>
+                        <h2 class="text-2xl font-bold text-gray-900 mb-4 leading-tight">${ev.title}</h2>
+                        
+                        <div class="space-y-3 mb-6 bg-gray-50 p-4 rounded-lg">
+                            <div class="flex items-start gap-3">
+                                <i data-lucide="calendar" class="w-5 h-5 text-gray-500 mt-0.5"></i>
+                                <div>
+                                    <div class="font-medium text-gray-900">기간</div>
+                                    <div class="text-gray-600">${ev.startDate} ~ ${ev.endDate}</div>
+                                </div>
+                            </div>
+                            <div class="flex items-start gap-3">
+                                <i data-lucide="clock" class="w-5 h-5 text-gray-500 mt-0.5"></i>
+                                <div>
+                                    <div class="font-medium text-gray-900">운영 시간</div>
+                                    <div class="text-gray-600">${ev.operatingHours || '정보 없음'}</div>
+                                </div>
+                            </div>
+                            <div class="flex items-start gap-3">
+                                <i data-lucide="map-pin" class="w-5 h-5 text-gray-500 mt-0.5"></i>
+                                <div>
+                                    <div class="font-medium text-gray-900">장소</div>
+                                    <div class="text-gray-600">${ev.venueName}</div>
+                                    <div class="text-sm text-gray-500 mt-0.5">${ev.address || ''}</div>
+                                </div>
+                            </div>
+                            ${ev.reservationType ? `
+                            <div class="flex items-start gap-3">
+                                <i data-lucide="ticket" class="w-5 h-5 text-gray-500 mt-0.5"></i>
+                                <div>
+                                    <div class="font-medium text-gray-900">입장 방식</div>
+                                    <div class="text-gray-600">${ev.reservationType}</div>
+                                    ${ev.reservationStartDate ? `<div class="text-sm text-gray-500 mt-0.5">예약기간: ${ev.reservationStartDate} ~ ${ev.reservationEndDate || ''}</div>` : ''}
+                                </div>
+                            </div>
+                            ` : ''}
+                        </div>
+
+                        ${ev.description ? `
+                        <div class="mb-6">
+                            <h4 class="font-bold text-gray-900 mb-2">상세 정보</h4>
+                            <p class="text-gray-700 whitespace-pre-line text-sm leading-relaxed">${ev.description}</p>
+                        </div>
+                        ` : ''}
+                        
+                        <div class="mb-6">
+                            <h4 class="font-bold text-gray-900 mb-2">위치</h4>
+                            <div id="modal-map" class="border border-gray-200"></div>
+                        </div>
+
+                        ${ev.tags && ev.tags.length > 0 ? `
+                        <div class="flex flex-wrap gap-2 mb-6">
+                            ${ev.tags.map(t => `<span class="bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded-md border border-gray-200">#${t}</span>`).join('')}
+                        </div>
+                        ` : ''}
+
+                        <div class="flex gap-3 pt-4 border-t border-gray-100">
+                            ${ev.sourceUrl ? `
+                            <a href="${ev.sourceUrl}" target="_blank" class="flex-1 bg-indigo-600 text-white text-center py-3 rounded-lg font-bold hover:bg-indigo-700 transition flex items-center justify-center gap-2">
+                                <i data-lucide="external-link" class="w-4 h-4"></i> 공식 공지 보기
+                            </a>
+                            ` : ''}
+                            ${ev.reservationUrl ? `
+                            <a href="${ev.reservationUrl}" target="_blank" class="flex-1 bg-orange-500 text-white text-center py-3 rounded-lg font-bold hover:bg-orange-600 transition flex items-center justify-center gap-2">
+                                <i data-lucide="ticket" class="w-4 h-4"></i> 예약하기
+                            </a>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            lucide.createIcons({ root: body });
+
+            // Init modal map
+            if (ev.lat && ev.lng) {
+                setTimeout(() => {
+                    if (modalMap) {
+                        modalMap.remove();
+                    }
+                    modalMap = L.map('modal-map', {
+                        zoomControl: false,
+                        scrollWheelZoom: false
+                    }).setView([ev.lat, ev.lng], 15);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(modalMap);
+                    
+                    const catColorClass = CAT_COLORS[ev.category] || 'bg-gray-500';
+                    const iconHtml = `<div class="event-marker ${catColorClass}"></div>`;
+                    const customIcon = L.divIcon({
+                        html: iconHtml, className: '', iconSize: [24, 24], iconAnchor: [12, 12]
+                    });
+                    
+                    L.marker([ev.lat, ev.lng], {icon: customIcon}).addTo(modalMap);
+                    modalMap.invalidateSize();
+                }, 300);
+            } else {
+                const mapEl = document.getElementById('modal-map');
+                if(mapEl) mapEl.style.display = 'none';
+            }
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('event-modal');
+            const content = document.getElementById('event-modal-content');
+            
+            content.classList.add('translate-x-full');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                document.body.style.overflow = 'auto';
+            }, 300); // match transition duration
+        }
+
+        // Mock Data Generator
+        function generateMockData() {
+            return [
+                {
+                    id: 1,
+                    title: "블루 아카이브 2.5주년 팝업스토어",
+                    category: "게임",
+                    subCategory: "블루 아카이브",
+                    status: "진행 중",
+                    startDate: "2026-10-15",
+                    endDate: "2026-10-31",
+                    operatingHours: "10:30 - 20:00",
+                    venueName: "더현대 서울",
+                    address: "서울 영등포구 여의대로 108 더현대 서울 B1",
+                    lat: 37.5259,
+                    lng: 126.9284,
+                    description: "블루 아카이브 2.5주년을 기념하는 대규모 팝업스토어.\n신규 굿즈 선행 판매 및 현장 이벤트 진행.",
+                    tags: ["팝업스토어", "굿즈", "넥슨"],
+                    sourceUrl: "#",
+                    thumbnail: "https://images.unsplash.com/photo-1605810230434-7631ac76ec81?w=800&q=80"
+                },
+                {
+                    id: 2,
+                    title: "원신 2026 여름축제",
+                    category: "게임",
+                    subCategory: "원신",
+                    status: "예정",
+                    startDate: "2026-10-25",
+                    endDate: "2026-10-28",
+                    operatingHours: "10:00 - 18:00",
+                    venueName: "킨텍스 제2전시장",
+                    address: "경기 고양시 일산서구 킨텍스로 217-59",
+                    lat: 37.6685,
+                    lng: 126.7417,
+                    description: "원신 오프라인 여름축제. 다양한 미니게임과 푸드트럭, 굿즈샵 운영.",
+                    tags: ["오프라인행사", "코스프레"],
+                    reservationUrl: "#",
+                    thumbnail: "https://images.unsplash.com/photo-1542751371-adc38448a05e?w=800&q=80"
+                },
+                {
+                    id: 3,
+                    title: "홀로라이브 콜라보 카페 in 홍대",
+                    category: "버튜버",
+                    subCategory: "홀로라이브 EN",
+                    status: "예약 오픈 중",
+                    startDate: "2026-10-01",
+                    endDate: "2026-11-15",
+                    operatingHours: "11:00 - 21:00",
+                    venueName: "애니플러스 서울합정점",
+                    address: "서울 마포구 월드컵로3길 14",
+                    lat: 37.5499,
+                    lng: 126.9126,
+                    description: "홀로라이브 EN Myth & Promise 멤버 콜라보 메뉴 및 한정 굿즈 판매.",
+                    tags: ["콜라보카페", "한정메뉴"],
+                    sourceUrl: "#",
+                    reservationUrl: "#",
+                    thumbnail: "https://images.unsplash.com/photo-1514066558159-fc8c737ef259?w=800&q=80"
+                },
+                {
+                    id: 4,
+                    title: "주술회전 전시회",
+                    category: "애니메이션",
+                    subCategory: "주술회전",
+                    status: "진행 중",
+                    startDate: "2026-09-15",
+                    endDate: "2026-10-20",
+                    operatingHours: "10:00 - 19:00",
+                    venueName: "AK PLAZA 홍대",
+                    address: "서울 마포구 양화로 188",
+                    lat: 37.5577,
+                    lng: 126.9258,
+                    description: "애니메이션 주술회전 2기 원화 및 설정화 전시. 성우 사인회 개최.",
+                    tags: ["전시회", "원화전"],
+                    sourceUrl: "#",
+                    thumbnail: "https://images.unsplash.com/photo-1627856013091-fed6e4e30025?w=800&q=80"
+                },
+                {
+                    id: 5,
+                    title: "코믹월드 서울 185회",
+                    category: "동인행사",
+                    subCategory: "종합",
+                    status: "예정",
+                    startDate: "2026-10-17",
+                    endDate: "2026-10-18",
+                    operatingHours: "10:30 - 16:30",
+                    venueName: "aT센터",
+                    address: "서울 서초구 강남대로 27",
+                    lat: 37.4687,
+                    lng: 127.0396,
+                    description: "국내 최대 동인 행사. 아마추어 만화가들의 동인지 및 굿즈 판매, 코스프레.",
+                    tags: ["코믹월드", "동인행사", "코스프레"],
+                    reservationUrl: "#",
+                    thumbnail: "https://images.unsplash.com/photo-1613303642352-850bd9608dae?w=800&q=80"
+                },
+                {
+                    id: 6,
+                    title: "나혼자만 레벨업 특별전",
+                    category: "웹툰",
+                    subCategory: "나혼자만 레벨업",
+                    status: "종료",
+                    startDate: "2026-09-01",
+                    endDate: "2026-10-05",
+                    operatingHours: "10:00 - 20:00",
+                    venueName: "롯데월드몰",
+                    address: "서울 송파구 올림픽로 300",
+                    lat: 37.5133,
+                    lng: 127.1028,
+                    description: "웹툰 나혼자만 레벨업 완결 기념 특별 전시 및 팝업스토어.",
+                    tags: ["전시", "팝업"],
+                    sourceUrl: "#",
+                    thumbnail: "https://images.unsplash.com/photo-1578632767115-351597cf2477?w=800&q=80"
+                },
+                {
+                    id: 7,
+                    title: "제일복권 (이치방쿠지) 페스티벌",
+                    category: "피규어/굿즈",
+                    subCategory: "종합",
+                    status: "진행 중",
+                    startDate: "2026-10-10",
+                    endDate: "2026-10-24",
+                    operatingHours: "11:00 - 20:00",
+                    venueName: "용산 아이파크몰",
+                    address: "서울 용산구 한강대로23길 55",
+                    lat: 37.5298,
+                    lng: 126.9648,
+                    description: "다양한 제일복권 신상품 선행 발매 및 한정 피규어 전시.",
+                    tags: ["피규어", "이치방쿠지"],
+                    sourceUrl: "#",
+                    thumbnail: "https://images.unsplash.com/photo-1608248543803-ba4f8c70ae0b?w=800&q=80"
+                }
+            ];
+        }
+    </script>
+</body>
+</html>
