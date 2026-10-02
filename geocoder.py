@@ -20,10 +20,11 @@ except ImportError:
 def _load_api_key() -> Optional[str]:
     """
     카카오 REST API 키를 환경변수 또는 .env 파일에서 로드합니다.
+    실제 카카오 REST API 키는 32자이므로, 20자 미만은 유효하지 않은 것으로 처리합니다.
     """
     # 1. 환경변수에서 먼저 탐색
-    key = os.environ.get("KAKAO_REST_API_KEY")
-    if key:
+    key = os.environ.get("KAKAO_REST_API_KEY", "").strip()
+    if key and len(key) >= 20:
         return key
 
     # 2. 프로젝트 루트의 .env 파일에서 탐색
@@ -37,7 +38,7 @@ def _load_api_key() -> Optional[str]:
                 k, v = line.split("=", 1)
                 k = k.strip()
                 v = v.strip().strip('"').strip("'")
-                if k == "KAKAO_REST_API_KEY":
+                if k == "KAKAO_REST_API_KEY" and len(v) >= 20:
                     return v
 
     return None
@@ -59,12 +60,16 @@ def geocode(address: str) -> Tuple[Optional[float], Optional[float]]:
 
     api_key = _load_api_key()
     if not api_key:
-        # API 키 없이도 프로그램이 중단되지 않도록 graceful 처리
+        # API 키가 없으면 조용히 건너뜀 (프로그램 중단 없음)
+        return None, None
+
+    if not address or not address.strip():
         return None, None
 
     url = "https://dapi.kakao.com/v2/local/search/address.json"
+    # API 키만 헤더에, 주소는 params로 처리 (인코딩 문제 방지)
     headers = {"Authorization": f"KakaoAK {api_key}"}
-    params = {"query": address}
+    params = {"query": address.strip()}
 
     try:
         response = requests.get(url, headers=headers, params=params, timeout=5)
