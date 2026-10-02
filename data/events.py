@@ -7,8 +7,9 @@ Reservation Types: '자유입장', '네이버예약', '캐치테이블', '사전
 """
 
 from typing import Any, Dict, List, Optional
+from datetime import date
 
-CURRENT_DATE = "2026-10-01"
+CURRENT_DATE = date.today().isoformat()
 
 CATEGORIES: List[str] = [
     "게임",
@@ -418,33 +419,3 @@ def get_event_by_id(event_id: int) -> Optional[Dict[str, Any]]:
             return event
     return None
 
-
-def get_events_by_category(category: str) -> List[Dict[str, Any]]:
-    """Filter events by category."""
-    return [event for event in EVENTS if event["category"] == category]
-
-
-def get_events_by_status(status: str, ref_date: str = CURRENT_DATE) -> List[Dict[str, Any]]:
-    """Filter events by status relative to reference date.
-    
-    Status can be:
-    - 'ongoing': event is currently taking place
-    - 'upcoming': event starts after ref_date
-    - 'past': event ended before ref_date
-    """
-    if status == "ongoing":
-        return [
-            event for event in EVENTS
-            if event["startDate"] <= ref_date <= event["endDate"]
-        ]
-    elif status == "upcoming":
-        return [
-            event for event in EVENTS
-            if event["startDate"] > ref_date
-        ]
-    elif status == "past":
-        return [
-            event for event in EVENTS
-            if event["endDate"] < ref_date
-        ]
-    return EVENTS

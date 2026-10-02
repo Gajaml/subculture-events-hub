@@ -97,6 +97,15 @@
     <div class="bg-white border-b border-gray-200 sticky top-0 z-20 shadow-sm">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
             <div class="flex flex-col gap-4">
+                <!-- Search -->
+                <div class="flex items-center gap-2 max-w-md">
+                    <div class="relative w-full">
+                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                            <i data-lucide="search" class="w-4 h-4 text-gray-400"></i>
+                        </div>
+                        <input type="text" id="search-input" placeholder="이벤트 제목, 장소 검색..." class="bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-indigo-500 focus:border-indigo-500 block w-full pl-10 p-2">
+                    </div>
+                </div>
                 <!-- Categories -->
                 <div class="flex flex-wrap gap-2 items-center" id="category-filters">
                     <span class="text-sm font-bold text-gray-500 mr-2"><i data-lucide="tag" class="w-4 h-4 inline"></i> 카테고리:</span>
@@ -211,6 +220,7 @@
         let currentTab = 'calendar';
         let filterCat = 'all';
         let filterStatus = 'all';
+        let searchQuery = '';
         
         // Map instances
         let mainMap = null;
@@ -219,7 +229,8 @@
         let modalMarker = null;
 
         // Calendar state
-        let currentDate = new Date(2026, 9, 1); // Oct 2026 (month is 0-indexed)
+        let now = new Date();
+        let currentDate = new Date(now.getFullYear(), now.getMonth(), 1); 
         let selectedDate = null;
 
         // Init App
@@ -230,6 +241,12 @@
         });
 
         function initFilters() {
+            const searchInput = document.getElementById('search-input');
+            searchInput.addEventListener('input', (e) => {
+                searchQuery = e.target.value.trim().toLowerCase();
+                applyFilters();
+            });
+
             const catContainer = document.getElementById('category-filters');
             CATEGORIES.forEach(cat => {
                 const btn = document.createElement('button');
@@ -307,7 +324,13 @@
             filteredEvents = allEvents.filter(ev => {
                 const matchCat = filterCat === 'all' || ev.category === filterCat;
                 const matchStatus = filterStatus === 'all' || ev.status === filterStatus;
-                return matchCat && matchStatus;
+                
+                const titleMatch = ev.title ? ev.title.toLowerCase().includes(searchQuery) : false;
+                const venueMatch = ev.venueName ? ev.venueName.toLowerCase().includes(searchQuery) : false;
+                const descMatch = ev.description ? ev.description.toLowerCase().includes(searchQuery) : false;
+                const matchSearch = !searchQuery || titleMatch || venueMatch || descMatch;
+
+                return matchCat && matchStatus && matchSearch;
             });
             
             const emptyState = document.getElementById('empty-state');
