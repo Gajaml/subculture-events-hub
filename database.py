@@ -200,26 +200,6 @@ def get_event_count() -> int:
 
 
 # ==============================================================================
-# Mock 데이터 마이그레이션
-# ==============================================================================
-def migrate_mock_data():
-    """
-    data/events.py의 기존 Mock 데이터 18건을 SQLite DB로 마이그레이션합니다.
-    이미 DB에 데이터가 있으면 건너뜁니다.
-    """
-    if get_event_count() > 0:
-        print(f"[DB] 이미 {get_event_count()}건의 데이터가 존재합니다. 마이그레이션 생략.")
-        return
-
-    try:
-        from data.events import EVENTS
-        count = insert_events_bulk(EVENTS)
-        print(f"[DB] Mock 데이터 마이그레이션 완료: {count}건 삽입됨.")
-    except ImportError:
-        print("[DB] data/events.py를 찾을 수 없습니다. 마이그레이션 생략.")
-
-
-# ==============================================================================
 # 유틸리티
 # ==============================================================================
 def _to_camel_case(d: Dict[str, Any]) -> Dict[str, Any]:
@@ -255,9 +235,8 @@ def _to_camel_case(d: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # ==============================================================================
-# 직접 실행 시: DB 초기화 + Mock 데이터 마이그레이션
+# 직접 실행 시: DB 초기화
 # ==============================================================================
 if __name__ == "__main__":
     init_db()
-    migrate_mock_data()
     print(f"[DB] 총 이벤트 수: {get_event_count()}")

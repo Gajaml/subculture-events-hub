@@ -39,26 +39,19 @@ if hasattr(app, 'json'):
 # ==============================================================================
 # 이벤트 원본 데이터 임포트
 # ==============================================================================
-# SQLite DB를 우선 사용하고, DB가 비어있으면 data/events.py의 Mock 데이터로 폴백합니다.
+# SQLite DB를 우선 사용합니다.
 try:
-    from database import init_db, get_all_events as db_get_all_events, get_event_count, migrate_mock_data
-    # 서버 시작 시 DB 초기화 및 Mock 데이터 마이그레이션
+    from database import init_db, get_all_events as db_get_all_events, get_event_count
+    # 서버 시작 시 DB 초기화
     init_db()
-    migrate_mock_data()
     _USE_DB = True
 except ImportError:
     _USE_DB = False
 
-try:
-    from data.events import EVENTS
-except (ImportError, ModuleNotFoundError):
-    EVENTS = []
-
 
 def get_all_raw_events():
     """
-    이벤트 원본 데이터를 로드합니다.
-    SQLite DB에 데이터가 있으면 DB에서, 없으면 data/events.py에서 읽어옵니다.
+    이벤트 원본 데이터를 SQLite DB에서 로드합니다.
     """
     if _USE_DB:
         try:
@@ -68,14 +61,7 @@ def get_all_raw_events():
         except Exception:
             pass
 
-    # DB 실패 시 기존 Mock 데이터 폴백
-    try:
-        import data.events
-        import importlib
-        importlib.reload(data.events)
-        return list(getattr(data.events, 'EVENTS', EVENTS))
-    except Exception:
-        return list(EVENTS)
+    return []
 
 
 # ==============================================================================

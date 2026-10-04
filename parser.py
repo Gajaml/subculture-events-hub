@@ -259,36 +259,23 @@ def parse_raw_item(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 # ==============================================================================
-# 관련성 필터: 서브컬처 무관 글 제거
+# 관련성 필터: 오프라인 및 서브컬처 무관 글 제거
 # ==============================================================================
 
-# 서브컬처 관련 글에 반드시 포함되어야 할 키워드 (하나라도 있으면 통과)
+# 서브컬처 오프라인 행사에 포함될 키워드
 RELEVANT_KEYWORDS = [
-    # 행사 유형
     "팝업스토어", "팝업 스토어", "팝업", "콜라보카페", "콜라보 카페", "콜라보레이션카페",
     "전시회", "전시", "팬미팅", "오프라인 이벤트", "동인행사", "코믹월드", "코스프레",
-    # 게임 IP
-    "블루아카이브", "블아", "원신", "스타레일", "붕괴", "명일방주", "아크나이츠",
-    "FGO", "페그오", "Fate", "우마무스메", "말딸", "니케", "NIKKE",
-    "리그오브레전드", "롤", "LoL", "배틀그라운드", "발로란트",
-    "메이플스토리", "던전앤파이터", "던파",
-    # 애니 IP
-    "귀멸의 칼날", "귀멸", "주술회전", "체인소맨", "하이큐",
-    "나루토", "원피스", "진격의 거인", "스파이패밀리",
-    "신카이 마코토", "슬램덩크", "건담",
-    # 버튜버
-    "홀로라이브", "hololive", "니지산지", "nijisanji", "스텔라이브",
-    "이세돌", "버튜버", "VTuber",
-    # 웹툰
-    "나혼자만레벨업", "나혼렙", "전지적독자시점", "전독시", "신의 탑", "웹툰",
-    # 굿즈/피규어
-    "피규어", "넨도로이드", "굿스마일", "굿즈", "코믹마켓",
-    # 장소 (이 장소면 서브컬처 행사일 가능성 높음)
-    "애니메이트", "더현대", "코엑스", "킨텍스",
+    "애니메이트", "더현대", "코엑스", "킨텍스", "AK플라자", "아이파크몰",
 ]
 
-# 제거해야 할 비관련 키워드 (이게 있으면 무조건 제외)
+# 제거해야 할 비관련/인게임 키워드 (이게 있으면 무조건 제외)
 IRRELEVANT_KEYWORDS = [
+    # 인게임 업데이트 관련
+    "업데이트", "서버 점검", "인게임", "버닝", "출석체크", "사전등록",
+    "신규 캐릭터", "클래스 업데이트", "점검 안내", "패치노트", "신규 보스",
+    "확률형", "가챠", "쿠폰", "접속", "보상", "이벤트 던전", "레이드",
+    # 비서브컬처
     "주식", "코스피", "나스닥", "S&P", "ETF", "투자", "채권",
     "부동산", "아파트", "분양", "청약",
     "다이어트", "운동", "헬스", "피부과", "성형",
@@ -299,22 +286,21 @@ IRRELEVANT_KEYWORDS = [
     "육아", "임신", "출산",
 ]
 
-
 def is_relevant(raw: dict) -> bool:
-    """서브컬처 행사와 관련된 글인지 판단합니다."""
-    # 공식 게임사 소스는 이미 검증된 데이터이므로 자동 통과
-    source = raw.get("source", "")
-    if source in ("nexon", "rss", "animate", "hololive", "nijisanji"):
-        return True
-
+    """오프라인 서브컬처 행사와 관련된 글인지 판단합니다."""
     combined = (raw.get("title", "") + " " + raw.get("description", "")).lower()
 
-    # 비관련 키워드가 있으면 즉시 제외
+    # 인게임/비관련 키워드가 있으면 즉시 제외 (공식 소스여도 버림)
     for kw in IRRELEVANT_KEYWORDS:
         if kw.lower() in combined:
             return False
 
-    # 관련 키워드가 하나라도 있으면 통과
+    # 공식 게임사 소스라도 오프라인 키워드가 있는지 확인
+    source = raw.get("source", "")
+    if source in ("animate", "hololive", "nijisanji"):
+        return True
+
+    # 그 외에는 오프라인 관련 키워드가 하나라도 있어야 통과
     for kw in RELEVANT_KEYWORDS:
         if kw.lower() in combined:
             return True
@@ -323,17 +309,19 @@ def is_relevant(raw: dict) -> bool:
 
 
 def parse_raw_items(raw_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """원시 데이터 목록을 일괄 정제합니다. 관련 없는 글과 날짜 추출 실패 항목은 자동 제외됩니다."""
+    """원시 데이터 목록을 일괄 정제합니다. 관련 없는 글과 날짜/장소 추출 실패 항목은 자동 제외됩니다."""
     # 1차 관련성 필터
     relevant = [item for item in raw_items if is_relevant(item)]
-    print(f"  [필터] {len(raw_items)}건 → 관련성 통과: {len(relevant)}건")
+    print(f"  [필터] {len(raw_items)}건 → 오프라인 필터 통과: {len(relevant)}건")
 
-    # 2차 날짜 추출
+    # 2차 정제 (날짜 및 장소 필수)
     results = []
     for item in relevant:
         parsed = parse_raw_item(item)
-        if parsed:
+        if parsed and parsed.get("venueName"): # 장소가 반드시 있어야 함
             results.append(parsed)
+            
+    print(f"  [필터] 날짜/장소 모두 추출된 진짜 오프라인 행사: {len(results)}건")
     return results
 
 
