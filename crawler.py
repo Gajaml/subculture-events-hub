@@ -302,13 +302,25 @@ def crawl_popga(max_items: int = 10) -> list:
                 seen_links.add(href)
                 raw_text = card.inner_text().strip().replace("\n", " ")
 
-                # 서브컬처 판별
-                if is_subculture_text(raw_text, "애니/캐릭터", raw_text):
-                    candidates.append((href, raw_text))
+                # 카드에서 고유 썸네일 이미지 추출
+                card_thumb = ""
+                img_elem = card.query_selector("img")
+                if img_elem:
+                    raw_src = img_elem.get_attribute("src") or ""
+                    if "url=" in raw_src:
+                        m = re.search(r'url=([^&]+)', raw_src)
+                        if m:
+                            card_thumb = urllib.parse.unquote(m.group(1))
+                    elif "cdn.popga.co.kr" in raw_src:
+                        card_thumb = raw_src
+
+                # 서브컬처 판별 (인위적인 카테고리 주입 없이 텍스트 자체로 엄격 판별)
+                if is_subculture_text(raw_text, "", raw_text):
+                    candidates.append((href, raw_text, card_thumb))
 
             print(f"  => 팝가 서브컬처 후보 {len(candidates)}건 발견, 상세 주소 수집...")
 
-            for href, raw_text in candidates[:max_items]:
+            for href, raw_text, card_thumb in candidates[:max_items]:
                 detail_url = f"https://popga.co.kr{href}" if href.startswith("/") else href
                 detail_page = context.new_page()
                 try:
@@ -326,13 +338,18 @@ def crawl_popga(max_items: int = 10) -> list:
                                 full_address = line
                                 break
 
-                    # 대표 이미지 추출
-                    img_url = ""
-                    img_elem = detail_page.query_selector("img[src*='cdn.popga.co.kr/spot'], img[src*='thumbnail']")
-                    if img_elem:
-                        img_url = img_elem.get_attribute("src") or ""
+                    # 대표 썸네일 (카드의 고유 썸네일 우선)
+                    img_url = card_thumb
+                    if not img_url:
+                        # spot id 기반 고유 이미지 추출
+                        spot_match = re.search(r'/popup/(\d+)', href)
+                        spot_id = spot_match.group(1) if spot_match else ""
+                        if spot_id:
+                            img_elem = detail_page.query_selector(f"img[src*='/spot/{spot_id}/']")
+                            if img_elem:
+                                img_url = img_elem.get_attribute("src") or ""
 
-                    # 제목 추출 (H1 또는 페이지 타이틀)
+                    # 제목 추출
                     title = ""
                     h1 = detail_page.query_selector("h1")
                     if h1:
@@ -374,6 +391,7 @@ def crawl_popga(max_items: int = 10) -> list:
                         "source": "popga",
                     })
                     print(f"    [Popga] {title} ({start_date}~{end_date}) -> {full_address}")
+                    print(f"            썸네일: {img_url[:60]}...")
                 except Exception as e:
                     print(f"    - {href} 수집 오류: {e}")
                 finally:
@@ -409,32 +427,52 @@ def crawl_popply(max_items: int = 25) -> list:
             page.goto("https://popply.co.kr/popup", timeout=30000, wait_until="networkidle")
             page.wait_for_timeout(2000)
 
+            # Popply의 <a> 카드들을 href별로 그룹화하여 고유 썸네일과 텍스트를 1:1 매핑
             cards = page.query_selector_all("a[href*='/popup/']")
-            seen_links = set()
-            candidates = []
+            popups = {}
 
             for card in cards:
                 href = card.get_attribute("href")
-                if not href or href in seen_links:
+                if not href:
                     continue
-                text = card.inner_text().strip()
-                lines = [l.strip() for l in text.split("\n") if l.strip()]
-                if len(lines) >= 4:
-                    seen_links.add(href)
-                    cat_tag = lines[0]
-                    title = lines[1]
-                    date_str = lines[2]
-                    region = lines[3]
+                if href not in popups:
+                    popups[href] = {
+                        "href": href,
+                        "thumb": "",
+                        "category_tag": "",
+                        "title": "",
+                        "date_str": "",
+                        "region": ""
+                    }
 
+                # 1. 고유 썸네일 이미지 추출 (블러 배경이 아닌 선명한 썸네일)
+                thumb_img = card.query_selector("img[alt*='썸네일']")
+                if not thumb_img:
+                    thumb_img = card.query_selector("img:not([class*='blur'])")
+
+                if thumb_img:
+                    src = thumb_img.get_attribute("src") or ""
+                    if "url=" in src:
+                        m = re.search(r'url=([^&]+)', src)
+                        if m:
+                            popups[href]["thumb"] = urllib.parse.unquote(m.group(1))
+                    elif src and "assets" not in src:
+                        popups[href]["thumb"] = src
+
+                # 2. 텍스트 정보 추출
+                lines = [l.strip() for l in card.inner_text().split("\n") if l.strip()]
+                if len(lines) >= 4:
+                    popups[href]["category_tag"] = lines[0]
+                    popups[href]["title"] = lines[1]
+                    popups[href]["date_str"] = lines[2]
+                    popups[href]["region"] = lines[3]
+
+            candidates = []
+            for href, item in popups.items():
+                if item["title"] and item["date_str"]:
                     # 엄격한 서브컬처 판별: 패션/뷰티/스포츠/푸드 등 완전 배제
-                    if is_subculture_text(title, cat_tag, f"{title} {region}"):
-                        candidates.append({
-                            "href": href,
-                            "category_tag": cat_tag,
-                            "title": title,
-                            "date_str": date_str,
-                            "region": region,
-                        })
+                    if is_subculture_text(item["title"], item["category_tag"], f"{item['title']} {item['region']}"):
+                        candidates.append(item)
 
             print(f"  => 팝플리 서브컬처 후보 {len(candidates)}건 발견, 상세 주소 추출 시작...")
 
@@ -455,16 +493,18 @@ def crawl_popply(max_items: int = 25) -> list:
                                 full_address = line
                                 break
 
-                    img_url = ""
-                    img_elem = detail_page.query_selector("img[src*='cloudfront.net/store'], img[alt*='썸네일']")
-                    if img_elem:
-                        raw_src = img_elem.get_attribute("src") or ""
-                        if "url=" in raw_src:
-                            match = re.search(r'url=([^&]+)', raw_src)
-                            if match:
-                                img_url = urllib.parse.unquote(match.group(1))
-                        else:
-                            img_url = raw_src
+                    # 대표 썸네일 (카드의 고유 썸네일 우선 사용, 없으면 메인 이미지 컨테이너만 조회)
+                    img_url = item["thumb"]
+                    if not img_url:
+                        main_img = detail_page.query_selector(".main-img-container img, .img-container img")
+                        if main_img:
+                            raw_src = main_img.get_attribute("src") or ""
+                            if "url=" in raw_src:
+                                m = re.search(r'url=([^&]+)', raw_src)
+                                if m:
+                                    img_url = urllib.parse.unquote(m.group(1))
+                            else:
+                                img_url = raw_src
 
                     start_date, end_date = _parse_event_dates(item["date_str"])
                     venue_name = _extract_venue_from_address(full_address, item["region"])
@@ -498,6 +538,7 @@ def crawl_popply(max_items: int = 25) -> list:
                         "source": "popply",
                     })
                     print(f"    [Popply] {item['title']} ({start_date}~{end_date}) -> {full_address}")
+                    print(f"             썸네일: {img_url[:60]}...")
                 except Exception as e:
                     print(f"    - {item['title']} 상세 수집 에러: {e}")
                 finally:
@@ -508,7 +549,6 @@ def crawl_popply(max_items: int = 25) -> list:
         print(f"[PopplyBot] 총 {len(events)}건 서브컬처 팝업 수집 완료")
     except Exception as e:
         print(f"[PopplyBot] 크롤링 실패: {e}")
-
     return events
 
 
