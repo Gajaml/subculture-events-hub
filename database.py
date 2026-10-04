@@ -15,7 +15,7 @@ from datetime import date
 from typing import Any, Dict, List, Optional
 
 # DB 파일 경로: 프로젝트 루트의 data/events.db
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "data", "events.db")
 
 # ==============================================================================

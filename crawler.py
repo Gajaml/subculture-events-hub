@@ -233,8 +233,162 @@ def crawl_web() -> list:
         except Exception as e:
             print(f"  [{source_name}] 수집 실패: {e}")
 
-    print(f"[WebBot] 총 {len(raw_items)}건 수집 완료")
-    return raw_items
+# ==============================================================================
+# 5. Playwright 기반 오프라인 팝업스토어 전용 수집기 (PopplyBot)
+# ==============================================================================
+SUBCULTURE_KEYWORDS = [
+    "캐릭터", "IP", "굿즈", "소품", "애니", "게임", "웹툰", "만화",
+    "덕후", "던전", "피규어", "콜라보", "아트", "엔터", "페스티벌",
+    "유희왕", "세카이", "메카", "하비", "무민", "팝업"
+]
+
+def _parse_popply_date(date_str: str):
+    parts = re.split(r'[-~]', date_str)
+    if len(parts) == 2:
+        def fmt(s):
+            m = re.findall(r'\d+', s)
+            if len(m) == 3:
+                y, mo, d = m
+                if len(y) == 2:
+                    y = '20' + y
+                return f"{y}-{int(mo):02d}-{int(d):02d}"
+            return ""
+        return fmt(parts[0]), fmt(parts[1])
+    return "", ""
+
+def _extract_popply_venue(address_text: str, default_region: str = "") -> str:
+    venues = ["아이파크몰", "더현대 서울", "더현대", "EQL", "코엑스", "킨텍스", "AK플라자", "롯데백화점", "신세계백화점", "현대백화점"]
+    for v in venues:
+        if v in address_text:
+            return v
+    parts = address_text.split()
+    if len(parts) >= 4:
+        return " ".join(parts[3:])
+    return default_region
+
+def crawl_popply(max_items: int = 15) -> list:
+    """
+    Playwright를 사용해 팝플리(Popply)에서 실제 오프라인 팝업스토어 목록을 수집합니다.
+    """
+    print(f"[PopplyBot] Playwright 기반 오프라인 팝업스토어 수집 시작 (최대 {max_items}건)...")
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        print("  [PopplyBot] playwright 라이브러리가 설치되지 않았습니다. 건너뜁니다.")
+        return []
+
+    events = []
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            )
+            page = context.new_page()
+            page.goto("https://popply.co.kr/popup", timeout=30000, wait_until="networkidle")
+            page.wait_for_timeout(2000)
+
+            cards = page.query_selector_all("a[href*='/popup/']")
+            seen_links = set()
+            candidates = []
+
+            for card in cards:
+                href = card.get_attribute("href")
+                if not href or href in seen_links:
+                    continue
+                text = card.inner_text().strip()
+                lines = [l.strip() for l in text.split("\n") if l.strip()]
+                if len(lines) >= 4:
+                    seen_links.add(href)
+                    cat_tag = lines[0]
+                    title = lines[1]
+                    date_str = lines[2]
+                    region = lines[3]
+
+                    is_sub = any(k in cat_tag for k in ["캐릭터", "굿즈", "엔터", "소품"]) or \
+                             any(k in title for k in SUBCULTURE_KEYWORDS)
+                    if is_sub:
+                        candidates.append({
+                            "href": href,
+                            "category_tag": cat_tag,
+                            "title": title,
+                            "date_str": date_str,
+                            "region": region,
+                        })
+
+            print(f"  => 후보 팝업 {len(candidates)}건 발견, 상세 주소 추출 시작...")
+
+            for item in candidates[:max_items]:
+                detail_url = f"https://popply.co.kr{item['href']}"
+                detail_page = context.new_page()
+                try:
+                    detail_page.goto(detail_url, timeout=15000)
+                    detail_page.wait_for_timeout(1000)
+                    body_text = detail_page.inner_text("body")
+
+                    full_address = item["region"]
+                    for line in body_text.split("\n"):
+                        line = line.strip()
+                        if any(c in line for c in ["서울", "경기", "인천", "부산", "대구"]) and \
+                           any(c in line for c in ["길", "로", "대로", "구", "동", "층"]):
+                            if len(line) > 10 and not line.startswith("📅") and "지도" not in line and "영업" not in line:
+                                full_address = line
+                                break
+
+                    img_url = ""
+                    img_elem = detail_page.query_selector("img[src*='cloudfront.net/store'], img[alt*='썸네일']")
+                    if img_elem:
+                        raw_src = img_elem.get_attribute("src") or ""
+                        if "url=" in raw_src:
+                            match = re.search(r'url=([^&]+)', raw_src)
+                            if match:
+                                img_url = urllib.parse.unquote(match.group(1))
+                        else:
+                            img_url = raw_src
+
+                    start_date, end_date = _parse_popply_date(item["date_str"])
+                    venue_name = _extract_popply_venue(full_address, item["region"])
+
+                    cat = "팝업스토어"
+                    if "카페" in item["title"]:
+                        cat = "콜라보카페"
+                    elif "전시" in item["title"] or "특별전" in item["title"]:
+                        cat = "전시회"
+                    elif "게임" in item["title"] or "IP" in item["category_tag"]:
+                        cat = "게임"
+
+                    events.append({
+                        "title": item["title"],
+                        "category": cat,
+                        "subCategory": item["category_tag"],
+                        "startDate": start_date,
+                        "endDate": end_date,
+                        "reservationType": "현장방문",
+                        "reservationUrl": detail_url,
+                        "reservationStartDate": None,
+                        "reservationEndDate": None,
+                        "venueName": venue_name,
+                        "address": full_address,
+                        "lat": None,
+                        "lng": None,
+                        "description": f"[{item['category_tag']}] {item['title']} - 위치: {full_address}",
+                        "thumbnailUrl": img_url,
+                        "tags": [item["category_tag"], "팝업스토어", item["region"]],
+                        "sourceUrl": detail_url,
+                        "source": "popply",
+                    })
+                except Exception as e:
+                    print(f"    - {item['title']} 상세 수집 에러: {e}")
+                finally:
+                    detail_page.close()
+
+            browser.close()
+
+        print(f"[PopplyBot] 총 {len(events)}건 실제 오프라인 팝업 수집 완료")
+    except Exception as e:
+        print(f"[PopplyBot] 크롤링 실패: {e}")
+
+    return events
 
 
 # ==============================================================================
@@ -260,6 +414,7 @@ def run_pipeline(dry_run: bool = False) -> dict:
     # 1단계: 수집 (Crawl)
     print("\n[1단계] 데이터 수집 중...")
     all_raw = []
+    all_raw.extend(crawl_popply(max_items=15))
     all_raw.extend(crawl_naver_api())
     all_raw.extend(crawl_nexon_events())
     all_raw.extend(crawl_official_rss())

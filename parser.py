@@ -211,11 +211,33 @@ def parse_raw_item(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     크롤러가 수집한 원시 데이터 1건을 정제된 이벤트 데이터로 변환합니다.
     
     Args:
-        raw: {"title": "...", "description": "...", "link": "...", ...} 형태의 원시 데이터
-
+        raw: 원시 데이터 딕셔너리
     Returns:
-        정제된 이벤트 딕셔너리, 또는 날짜 추출 실패 시 None
+        정제된 이벤트 딕셔너리, 또는 날짜/장소 누락 시 None
     """
+    # 이미 정형화된 데이터(예: Popply 등)가 전달된 경우
+    if raw.get("startDate") and raw.get("endDate") and raw.get("venueName"):
+        return {
+            "title": raw.get("title", "").strip(),
+            "category": raw.get("category", "팝업스토어"),
+            "subCategory": raw.get("subCategory", ""),
+            "startDate": raw.get("startDate"),
+            "endDate": raw.get("endDate"),
+            "reservationType": raw.get("reservationType", "현장방문"),
+            "reservationUrl": raw.get("reservationUrl", ""),
+            "reservationStartDate": raw.get("reservationStartDate"),
+            "reservationEndDate": raw.get("reservationEndDate"),
+            "venueName": raw.get("venueName", ""),
+            "address": raw.get("address", ""),
+            "lat": raw.get("lat"),
+            "lng": raw.get("lng"),
+            "description": raw.get("description", ""),
+            "thumbnailUrl": raw.get("thumbnailUrl", ""),
+            "tags": raw.get("tags", []),
+            "sourceUrl": raw.get("sourceUrl", raw.get("link", "")),
+            "source": raw.get("source", "crawler"),
+        }
+
     title = raw.get("title", "")
     description = raw.get("description", "")
     link = raw.get("link", "")
@@ -288,6 +310,11 @@ IRRELEVANT_KEYWORDS = [
 
 def is_relevant(raw: dict) -> bool:
     """오프라인 서브컬처 행사와 관련된 글인지 판단합니다."""
+    # 오프라인 전문 플랫폼 및 검증된 공식 소스는 자동 통과
+    source = raw.get("source", "")
+    if source in ("popply", "animate", "hololive", "nijisanji"):
+        return True
+
     combined = (raw.get("title", "") + " " + raw.get("description", "")).lower()
 
     # 인게임/비관련 키워드가 있으면 즉시 제외 (공식 소스여도 버림)
