@@ -137,11 +137,73 @@ def crawl_official_rss() -> list:
 
 
 # ==============================================================================
-# 3. HTML 직접 파싱 수집기 (WebBot)
+# 3. 넥슨 이벤트 페이지 전용 크롤러 (NexonBot)
+# ==============================================================================
+def crawl_nexon_events() -> list:
+    """
+    넥슨 공식 이벤트 페이지(event.nexon.com)에서 진행 중인 이벤트를 수집합니다.
+    HTML 구조가 잘 정리되어 있어 제목/날짜/게임명을 정확히 추출할 수 있습니다.
+    """
+    print("[NexonBot] 넥슨 공식 이벤트 수집 시작...")
+    raw_items = []
+    url = "https://event.nexon.com/event/ongoinglist.aspx"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+    try:
+        res = requests.get(url, headers=headers, timeout=10)
+        if res.status_code != 200:
+            print(f"  HTTP {res.status_code} 오류")
+            return []
+
+        soup = BeautifulSoup(res.text, "html.parser")
+        items = soup.find_all("li", class_="eventItem")
+
+        for item in items:
+            # 제목
+            tit_el = item.find("span", class_="eventTit")
+            title = tit_el.get_text(strip=True) if tit_el else ""
+
+            # 설명
+            cnts_el = item.find("span", class_="eventCnts")
+            description = cnts_el.get_text(strip=True) if cnts_el else ""
+
+            # 날짜 (YYYY-MM-DD ~ YYYY-MM-DD)
+            period_el = item.find("span", class_="eventPeriod")
+            period_text = period_el.get_text(strip=True) if period_el else ""
+
+            # 게임명
+            game_el = item.find("span", class_="eventGameName")
+            game_name = game_el.get_text(strip=True) if game_el else ""
+
+            # 링크
+            a_tag = item.find("a", href=True)
+            link = a_tag.get("href", "") if a_tag else ""
+
+            # 종료일이 9999인 항목은 상시 이벤트이므로 제외
+            if "9999" in period_text:
+                continue
+
+            if title:
+                raw_items.append({
+                    "source": "nexon",
+                    "title": f"[{game_name}] {title}" if game_name else title,
+                    "description": f"{description} {period_text}",
+                    "link": link,
+                })
+
+        print(f"  => {len(raw_items)}건 수집 완료 (상시 이벤트 제외)")
+    except Exception as e:
+        print(f"  [NexonBot] 수집 실패: {e}")
+
+    return raw_items
+
+
+# ==============================================================================
+# 4. 범용 웹 크롤러 (WebBot) - 향후 사이트 추가용
 # ==============================================================================
 WEB_TARGETS = [
     # 향후 파서 개발 완료된 사이트를 여기에 추가
-    # 예: ("https://www.animatekorea.co.kr/news", "animate"),
+    # 형식: (URL, 소스명)
 ]
 
 def crawl_web() -> list:
@@ -151,7 +213,7 @@ def crawl_web() -> list:
         return []
 
     raw_items = []
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
     for url, source_name in WEB_TARGETS:
         try:
             res = requests.get(url, headers=headers, timeout=10)
@@ -199,6 +261,7 @@ def run_pipeline(dry_run: bool = False) -> dict:
     print("\n[1단계] 데이터 수집 중...")
     all_raw = []
     all_raw.extend(crawl_naver_api())
+    all_raw.extend(crawl_nexon_events())
     all_raw.extend(crawl_official_rss())
     all_raw.extend(crawl_web())
     print(f"\n  => 총 {len(all_raw)}건 원시 데이터 수집 완료")

@@ -302,6 +302,11 @@ IRRELEVANT_KEYWORDS = [
 
 def is_relevant(raw: dict) -> bool:
     """서브컬처 행사와 관련된 글인지 판단합니다."""
+    # 공식 게임사 소스는 이미 검증된 데이터이므로 자동 통과
+    source = raw.get("source", "")
+    if source in ("nexon", "rss", "animate", "hololive", "nijisanji"):
+        return True
+
     combined = (raw.get("title", "") + " " + raw.get("description", "")).lower()
 
     # 비관련 키워드가 있으면 즉시 제외
