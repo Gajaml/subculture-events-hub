@@ -51,15 +51,26 @@ except ImportError:
 
 def get_all_raw_events():
     """
-    이벤트 원본 데이터를 SQLite DB에서 로드합니다.
+    이벤트 원본 데이터를 SQLite DB에서 로드하고,
+    서버리스/배포 환경에서는 data/events.json을 폴백으로 안전하게 로드합니다.
     """
     if _USE_DB:
         try:
             db_events = db_get_all_events()
             if db_events:
                 return db_events
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[WARN] DB 로드 실패: {e}")
+
+    # Fallback to data/events.json
+    import json
+    json_path = os.path.join(BASE_DIR, "data", "events.json")
+    if os.path.exists(json_path):
+        try:
+            with open(json_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[WARN] events.json 로드 실패: {e}")
 
     return []
 

@@ -14,9 +14,10 @@ import sqlite3
 from datetime import date
 from typing import Any, Dict, List, Optional
 
-# DB 파일 경로: 프로젝트 루트의 data/events.db
+# DB 및 JSON 파일 경로: 프로젝트 루트의 data/
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "data", "events.db")
+JSON_PATH = os.path.join(BASE_DIR, "data", "events.json")
 
 # ==============================================================================
 # 테이블 스키마 정의
@@ -62,21 +63,29 @@ def get_connection() -> sqlite3.Connection:
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL;")
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+    except Exception:
+        pass
     conn.execute("PRAGMA foreign_keys=ON;")
     return conn
 
 
 def init_db():
     """데이터베이스 테이블 및 인덱스를 초기화합니다."""
-    conn = get_connection()
+    if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+        return
     try:
-        conn.execute(CREATE_EVENTS_TABLE)
-        conn.executescript(CREATE_INDEX)
-        conn.commit()
-        print(f"[DB] 데이터베이스 초기화 완료: {DB_PATH}")
-    finally:
-        conn.close()
+        conn = get_connection()
+        try:
+            conn.execute(CREATE_EVENTS_TABLE)
+            conn.executescript(CREATE_INDEX)
+            conn.commit()
+            print(f"[DB] 데이터베이스 초기화 완료: {DB_PATH}")
+        finally:
+            conn.close()
+    except Exception as e:
+        print(f"[DB] 데이터베이스 초기화 건너뜀/예외: {e}")
 
 
 # ==============================================================================
@@ -144,59 +153,63 @@ def insert_events_bulk(events: List[Dict[str, Any]]) -> int:
 
 
 def get_all_events() -> List[Dict[str, Any]]:
-    """DB에 저장된 모든 이벤트를 딕셔너리 리스트로 반환합니다."""
+    """DB에 저장된 모든 이벤트를 딕셔너리 리스트로 반환합니다. Vercel 환경에서는 data/events.json을 우선/폴백으로 사용합니다."""
     import json
 
-    conn = get_connection()
-    try:
-        rows = conn.execute("SELECT * FROM events ORDER BY start_date ASC").fetchall()
-        events = []
-        for row in rows:
-            ev = dict(row)
-            # snake_case → camelCase 변환 (프론트엔드 호환)
-            ev = _to_camel_case(ev)
-            # tags를 JSON 문자열에서 리스트로 복원
-            if isinstance(ev.get("tags"), str):
-                try:
-                    ev["tags"] = json.loads(ev["tags"])
-                except (json.JSONDecodeError, TypeError):
-                    ev["tags"] = []
-            events.append(ev)
-        return events
-    finally:
-        conn.close()
+    # 1. Vercel/서버리스 환경에서는 JSON 파일 직접 로드 우선
+    if os.environ.get("VERCEL") or os.environ.get("AWS_LAMBDA_FUNCTION_NAME"):
+        if os.path.exists(JSON_PATH):
+            try:
+                with open(JSON_PATH, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"[Vercel] JSON 로드 오류: {e}")
+
+    # 2. 로컬 SQLite DB 조회 시도
+    if os.path.exists(DB_PATH):
+        try:
+            conn = get_connection()
+            try:
+                rows = conn.execute("SELECT * FROM events ORDER BY start_date ASC").fetchall()
+                if rows:
+                    events = []
+                    for row in rows:
+                        ev = dict(row)
+                        ev = _to_camel_case(ev)
+                        if isinstance(ev.get("tags"), str):
+                            try:
+                                ev["tags"] = json.loads(ev["tags"])
+                            except (json.JSONDecodeError, TypeError):
+                                ev["tags"] = []
+                        events.append(ev)
+                    return events
+            finally:
+                conn.close()
+        except Exception as e:
+            print(f"[DB] SQLite 로드 오류 ({e}), events.json 폴백 사용")
+
+    # 3. 폴백: data/events.json
+    if os.path.exists(JSON_PATH):
+        try:
+            with open(JSON_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"[DB] JSON 폴백 로드 실패: {e}")
+
+    return []
 
 
 def get_event_by_id(event_id: int) -> Optional[Dict[str, Any]]:
     """특정 ID의 이벤트를 반환합니다."""
-    import json
-
-    conn = get_connection()
-    try:
-        row = conn.execute("SELECT * FROM events WHERE id = ?", (event_id,)).fetchone()
-        if row is None:
-            return None
-        ev = _to_camel_case(dict(row))
-        if isinstance(ev.get("tags"), str):
-            try:
-                ev["tags"] = json.loads(ev["tags"])
-            except (json.JSONDecodeError, TypeError):
-                ev["tags"] = []
-        return ev
-    finally:
-        conn.close()
+    for ev in get_all_events():
+        if str(ev.get("id")) == str(event_id):
+            return ev
+    return None
 
 
 def get_event_count() -> int:
     """DB에 저장된 이벤트 총 수를 반환합니다."""
-    conn = get_connection()
-    try:
-        row = conn.execute("SELECT COUNT(*) FROM events").fetchone()
-        return row[0]
-    except Exception:
-        return 0
-    finally:
-        conn.close()
+    return len(get_all_events())
 
 
 # ==============================================================================
